@@ -219,6 +219,29 @@ function! s:HideDuringCompletion() abort
   return get(g:, 'copilot_hide_during_completion', 1)
 endfunction
 
+function! s:BalanceParens(text)
+  let text_length = len(a:text)
+  let stack = []
+  " Take until the first unbalanced closing paren
+  for i in range(text_length)
+    let c = a:text[i]
+    if stridx("([{", c) >= 0
+      call add(stack, c)
+    elseif stridx(")]}", c) >= 0
+      if empty(stack)
+        return strpart(a:text, 0, i)
+      endif
+      call remove(stack, -1)
+    endif
+  endfor
+  " Add closing parens for the remaining opening parens
+  let text = a:text
+  for c in stack
+    let text .= {'(': ')', '[': ']', '{': '}'}[c]
+  endfor
+  return text
+endfunction
+
 function! s:SuggestionTextWithAdjustments() abort
   try
     if mode() !~# '^[iR]' || (s:HideDuringCompletion() && pumvisible()) || !exists('b:_copilot.suggestions')
@@ -241,11 +264,21 @@ function! s:SuggestionTextWithAdjustments() abort
     if typed =~# '^\s*$'
       let leading = matchstr(choice_text, '^\s\+')
       let unindented = strpart(choice_text, len(leading))
-      if strpart(typed, 0, len(leading)) == leading && unindented !=# delete
-        return [unindented, len(typed) - len(leading), strchars(delete), uuid]
+      if get(g:, "copilot_balanced_parens")
+        let text = s:BalanceParens(unindented)
+      else
+        let text = unindented
+      endif
+      if strpart(typed, 0, len(leading)) == leading && text !=# delete
+        return [text, len(typed) - len(leading), strchars(delete), uuid]
       endif
     elseif typed ==# strpart(choice_text, 0, offset)
-      return [strpart(choice_text, offset), 0, strchars(delete), uuid]
+      if get(g:, "copilot_balanced_parens")
+        let text = s:BalanceParens(strpart(choice.text, offset)) . delete
+      else
+        let text = strpart(choice.text, offset)
+      endif
+      return [text, 0, strchars(delete), uuid]
     endif
   catch
     call copilot#logger#Exception()
